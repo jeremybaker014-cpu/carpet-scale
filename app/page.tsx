@@ -16,6 +16,7 @@ export default function Home() {
   const [atki, setAtki] = useState("70");
   const [resultSize, setResultSize] = useState<{ w: number; h: number } | null>(null);
   const [status, setStatus] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const originalCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -114,55 +115,29 @@ export default function Home() {
     return offscreen;
   };
 
-  const saveBmp = () => {
-    const canvas = renderScaled();
-    if (!canvas || !resultSize) return;
+  const saveBmp = async () => {
+    if (!originalFile || !resultSize) return;
     const { w, h } = resultSize;
-    const ctx = canvas.getContext("2d")!;
-    const imageData = ctx.getImageData(0, 0, w, h);
-    const { data } = imageData;
-
-    const rowSize = Math.floor((24 * w + 31) / 32) * 4;
-    const pixelDataSize = rowSize * h;
-    const fileSize = 54 + pixelDataSize;
-    const buffer = new ArrayBuffer(fileSize);
-    const view = new DataView(buffer);
-
-    // File header
-    view.setUint8(0, 0x42); view.setUint8(1, 0x4d); // "BM"
-    view.setUint32(2, fileSize, true);
-    view.setUint32(6, 0, true);
-    view.setUint32(10, 54, true);
-
-    // DIB header
-    view.setUint32(14, 40, true);
-    view.setInt32(18, w, true);
-    view.setInt32(22, h, true);
-    view.setUint16(26, 1, true);
-    view.setUint16(28, 24, true);
-    view.setUint32(30, 0, true);
-    view.setUint32(34, pixelDataSize, true);
-    view.setInt32(38, 2835, true);
-    view.setInt32(42, 2835, true);
-    view.setUint32(46, 0, true);
-    view.setUint32(50, 0, true);
-
-    // Pixel data (bottom-to-top, BGR)
-    for (let y = h - 1; y >= 0; y--) {
-      const rowOffset = 54 + (h - 1 - y) * rowSize;
-      for (let x = 0; x < w; x++) {
-        const idx = (y * w + x) * 4;
-        view.setUint8(rowOffset + x * 3, data[idx + 2]);     // B
-        view.setUint8(rowOffset + x * 3 + 1, data[idx + 1]); // G
-        view.setUint8(rowOffset + x * 3 + 2, data[idx]);     // R
-      }
+    setSaving(true);
+    setStatus("İşleniyor...");
+    try {
+      const form = new FormData();
+      form.append("file", originalFile);
+      form.append("width", String(w));
+      form.append("height", String(h));
+      const res = await fetch("/api/scale", { method: "POST", body: form });
+      if (!res.ok) throw new Error("Sunucu hatası");
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `scaled_${w}x${h}.bmp`;
+      a.click();
+      setStatus("");
+    } catch {
+      setStatus("Hata oluştu, tekrar deneyin.");
+    } finally {
+      setSaving(false);
     }
-
-    const blob = new Blob([buffer], { type: "image/bmp" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `scaled_${w}x${h}.bmp`;
-    a.click();
   };
 
   const savePng = () => {
@@ -285,9 +260,10 @@ export default function Home() {
         <div className="flex gap-4">
           <button
             onClick={saveBmp}
-            className="flex-1 bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition-colors"
+            disabled={saving}
+            className="flex-1 bg-green-700 hover:bg-green-600 disabled:bg-green-900 disabled:cursor-wait text-white font-bold py-3 rounded-xl transition-colors"
           >
-            BMP Kaydet ({resultSize.w}×{resultSize.h} px)
+            {saving ? "İşleniyor..." : `BMP Kaydet (${resultSize.w}×${resultSize.h} px)`}
           </button>
           <button
             onClick={savePng}
